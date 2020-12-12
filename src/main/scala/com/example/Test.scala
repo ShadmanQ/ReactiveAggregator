@@ -14,7 +14,7 @@ object  main extends  App{
   val restClient = TwitterRestClient()
   val streamingClient = TwitterStreamingClient()
   println("hi")//access secret
-  streamingClient.
+  //streamingClient.
 
 
 }
