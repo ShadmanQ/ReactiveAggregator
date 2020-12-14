@@ -57,10 +57,12 @@ class Tweeter(hub: Sink[String, NotUsed], trackedWord: String) extends Actor {
 class HashManager(seed1: String, seed2: String,man1: ActorRef, man2: ActorRef) extends Actor{
   var table1: Map[String,Int] = Map(seed1 -> 0).withDefaultValue(0)
   var table2: Map[String,Int] = Map(seed2 -> 0).withDefaultValue(0)
+
   man1 ! Seq((seed1,0))
   man2 ! Seq((seed2,0))
 
   def receive = {
+
     case i: Tweet => {
       println("Testing Stuff +++++++++++++++++++")
       //println(i.extended_tweet)
@@ -86,9 +88,23 @@ class HashManager(seed1: String, seed2: String,man1: ActorRef, man2: ActorRef) e
       println(table1)
       println("Here is table2")
       println(table2)
-      for (tag <- hashtags){
-        if (table1.contains(tag)) table1(tag)+=1 else table1 +=(tag->1)
+      //entities.get.hashtags returns the topics sans hashtags
+      // so you have to remove the first from the original seed otherwise .contains always returns false
+      val seednohash = seed1.substring(1,seed1.length())
+      val seednohash2 = seed2.substring(1,seed2.length())
+      
+      if (hashtags.contains(seednohash)){
+        for (tag <- hashtags) {
+          if (table1.contains(tag)) table1(tag) += 1 else table1 += (tag -> 1)
+        }
       }
+
+      if(hashtags.contains(seednohash2)){
+        for (tag <- hashtags){
+          if (table2.contains(tag)) table2(tag)+=1 else table2 +=(tag->1)
+        }
+      }
+
 //      if (hashtags.contains(seed1)) {
 //        for (tag <- hashtags) table1(tag) += 1
 //      }
@@ -119,6 +135,10 @@ class HashManager(seed1: String, seed2: String,man1: ActorRef, man2: ActorRef) e
       println("Here are the top5")
       println(top.slice(0,5))
     }
+  }
+
+  def newSources(): Unit ={
+    println("now generating sources for new tags")
   }
 }
 
