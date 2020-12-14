@@ -63,26 +63,38 @@ class HashManager(seed1: String, seed2: String,man1: ActorRef, man2: ActorRef) e
   def receive = {
     case i: Tweet => {
       println("Testing Stuff +++++++++++++++++++")
-      println(i.extended_tweet)
-      val text = i.text
-      val parts = text.toString().split(" ")
-      println(parts.toString)
+      //println(i.extended_tweet)
+      val tags =(i.entities.get.hashtags)
+     // val text = i.text
+    //  val parts = text.toString().split(" ")
+      //println(parts.toString)
       var hashtags: List[String] = List()
-      for (part <- parts) {
-        println(part.toString())
-        //hashtags = hashtags.concat(List("#testing"))
-        if (part.size > 0 && part(0) == "#") {
-          println(part)
-          hashtags = hashtags.concat(List(part))
-        }
+      for (tag <-tags) {
+        hashtags = hashtags.concat(List(tag.text))
       }
+//      for (part <- parts) {
+//   //     println(part.toString())
+//        //hashtags = hashtags.concat(List("#testing"))
+//        if (part.size > 0 && part(0) == "#") {
+//          println(part)
+//          hashtags = hashtags.concat(List(part))
+//        }
+//      }
+      println("Now printing hashtags")
       println(hashtags)
-      if (hashtags.contains(seed1)) {
-        for (tag <- hashtags) table1(tag) += 1
+      println("Here is table1")
+      println(table1)
+      println("Here is table2")
+      println(table2)
+      for (tag <- hashtags){
+        if (table1.contains(tag)) table1(tag)+=1 else table1 +=(tag->1)
       }
-      if (hashtags.contains(seed2)) {
-        for (tag <- hashtags) table2(tag) += 1
-      }
+//      if (hashtags.contains(seed1)) {
+//        for (tag <- hashtags) table1(tag) += 1
+//      }
+//      if (hashtags.contains(seed2)) {
+//        for (tag <- hashtags) table2(tag) += 1
+//      }
       if (table1(seed1) % 10 == 0) {
         println(table1)
         println("---------------------------------------------")
@@ -97,15 +109,23 @@ class HashManager(seed1: String, seed2: String,man1: ActorRef, man2: ActorRef) e
   }
 
   def top5(value: mutable.Map[String, Int]): Unit ={
-    if (value.size < 5) value.toSeq.sortBy(_._2)
-    else value.toSeq.sortBy(_._2).slice(0,5)
+    if (value.size < 5) {
+      println("top 5 less than five")
+      val top = value.toSeq.sortBy(_._2).reverse
+      println(top)
+    }
+    else {
+      val top = value.toSeq.sortBy(_._2).reverse
+      println("Here are the top5")
+      println(top.slice(0,5))
+    }
   }
 }
 
 class TweetManager(hub: Sink[String,NotUsed]) extends Actor{
   val toConsume = hub
   var tweeters: Map[String,ActorRef] = Map()
-
+  //receive method override to hashtags from tweet and add it to a related hashtags table
   def receive = {
     case i: Seq[(String,Int)] => {
       for ((key,value) <- tweeters) {
@@ -156,9 +176,9 @@ class TweetManager(hub: Sink[String,NotUsed]) extends Actor{
     // any number of times, and every element that enters the Sink will
     // be consumed by our consumer.
     val onErrorMessage = (ex: Throwable) => "error"
-    val man1 = system.actorOf(Props(new TweetManager(sink)))
-    val man2 = system.actorOf(Props(new TweetManager(sink)))
-    val hashManager = system.actorOf(Props(new HashManager("#Covid","SCOTUS",man1,man2)))
+    val man1 = system.actorOf(Props(new TweetManager(sink))) //actor object
+    val man2 = system.actorOf(Props(new TweetManager(sink))) //actor object
+    val hashManager = system.actorOf(Props(new HashManager("#Covid","#SCOTUS",man1,man2)))
     val passer = Sink.actorRef(hashManager,"hello")
     source.runWith(passer)
     //source.runWith(Sink.foreach(println))
