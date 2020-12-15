@@ -32,7 +32,9 @@ import scala.collection.mutable
 class Tweeter(hub: Sink[String, NotUsed], trackedWord: String) extends Actor {
   var toConsume = hub
   val streamingClient = TwitterStreamingClient()
-
+  println("+++++++++++++++++++++++++")
+  println("Now creating Tweeter for " + trackedWord)
+  println("+++++++++++++++++++++++++")
 
   val source: Source[String, ActorRef] = Source.actorRef(
     completionMatcher = {
@@ -64,6 +66,7 @@ class HashManager(initseed1: String, initseed2: String,man1: ActorRef, man2: Act
   val seed2 = initseed2.substring(1,initseed2.length())
   var table1: Map[String,Int] = Map(seed1 -> 0).withDefaultValue(0)
   var table2: Map[String,Int] = Map(seed2 -> 0).withDefaultValue(0)
+  var count = 0
 
   man1 ! Seq((seed1,0))
   man2 ! Seq((seed2,0))
@@ -72,6 +75,7 @@ class HashManager(initseed1: String, initseed2: String,man1: ActorRef, man2: Act
 
     case i: Tweet => {
       val tags =(i.entities.get.hashtags)
+      count+=1
       var hashtags: List[String] = List()
       for (tag <-tags) {
         hashtags = hashtags.concat(List(tag.text))
@@ -91,12 +95,13 @@ class HashManager(initseed1: String, initseed2: String,man1: ActorRef, man2: Act
         }
       }
 
-      if (table1(seed1) % 2 == 0) {
-
+      if (count % 10 == 0) {
+        println(table1)
         val msg = top5(table1)
         man1 ! msg
       }
-      if (table2(seed2) % 2 == 0) {
+      if (count % 10 == 0) {
+        println(table2)
         val msg = top5(table2)
         man2 ! msg
       }
@@ -153,7 +158,7 @@ class TweetManager(hub: Sink[String,NotUsed]) extends Actor{
     implicit val materializer: ActorMaterializer = ActorMaterializer()
     // Make sure to define the following env variables:
     // TWITTER_CONSUMER_TOKEN_KEY and TWITTER_CONSUMER_TOKEN_SECRET
-    // TWITTER_ACCESS_TOKEN_KEY and TWITTER_ACCESS_TOKEN_SECRE
+    // TWITTER_ACCESS_TOKEN_KEY and TWITTER_ACCESS_TOKEN_SECRET
     val streamingClient = TwitterStreamingClient()
     // change this to whichever words you want to track
     val trackedWords = Seq("#covid", "#scotus")
@@ -181,7 +186,7 @@ class TweetManager(hub: Sink[String,NotUsed]) extends Actor{
     val onErrorMessage = (ex: Throwable) => "error"
     val man1 = system.actorOf(Props(new TweetManager(sink))) //actor object
     val man2 = system.actorOf(Props(new TweetManager(sink))) //actor object
-    val hashManager = system.actorOf(Props(new HashManager("#cheese","#ham",man1,man2)))
+    val hashManager = system.actorOf(Props(new HashManager("#scala","#covid",man1,man2)))
     val passer = Sink.actorRef(hashManager,"hello")
     source.runWith(passer)
 
