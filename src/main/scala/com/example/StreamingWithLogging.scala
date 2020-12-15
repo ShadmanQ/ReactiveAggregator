@@ -20,14 +20,19 @@ import scala.concurrent.ExecutionContext.Implicits.global
 import akka.actor.Props
 import akka.actor.PoisonPill
 import akka.event.Logging
-import streaming.StreamingWithLogging.{materializer, streamingClient}
+import streaming.StreamingWithLogging.{materializer, sink, streamingClient, system}
 
 import scala.collection.mutable
 
-
+//creates a connection with the Twitter backend and returns all tweets that contain the trackedWord.
+//Tweeters send their tweets to a MergeHub
+//MergeHub then passes tweets to BroadcastHub
+//BroadcastHub sends tweets to Sink that prints tweets
+//BroadcastHub then sends tweets to HashManager.
 class Tweeter(hub: Sink[String, NotUsed], trackedWord: String) extends Actor {
   var toConsume = hub
   val streamingClient = TwitterStreamingClient()
+
 
   val source: Source[String, ActorRef] = Source.actorRef(
     completionMatcher = {
@@ -53,8 +58,10 @@ class Tweeter(hub: Sink[String, NotUsed], trackedWord: String) extends Actor {
     }
   }
 }
-
-class HashManager(seed1: String, seed2: String,man1: ActorRef, man2: ActorRef) extends Actor{
+//creates and maintains a revolving list of hashtags of the two seeds via two TweetManagers.
+class HashManager(initseed1: String, initseed2: String,man1: ActorRef, man2: ActorRef) extends Actor{
+  val seed1 = initseed1.substring(1,initseed1.length())
+  val seed2 = initseed2.substring(1,initseed2.length())
   var table1: Map[String,Int] = Map(seed1 -> 0).withDefaultValue(0)
   var table2: Map[String,Int] = Map(seed2 -> 0).withDefaultValue(0)
 
@@ -64,84 +71,54 @@ class HashManager(seed1: String, seed2: String,man1: ActorRef, man2: ActorRef) e
   def receive = {
 
     case i: Tweet => {
-      println("Testing Stuff +++++++++++++++++++")
-      //println(i.extended_tweet)
       val tags =(i.entities.get.hashtags)
-     // val text = i.text
-    //  val parts = text.toString().split(" ")
-      //println(parts.toString)
       var hashtags: List[String] = List()
       for (tag <-tags) {
         hashtags = hashtags.concat(List(tag.text))
       }
-//      for (part <- parts) {
-//   //     println(part.toString())
-//        //hashtags = hashtags.concat(List("#testing"))
-//        if (part.size > 0 && part(0) == "#") {
-//          println(part)
-//          hashtags = hashtags.concat(List(part))
-//        }
-//      }
-      println("Now printing hashtags")
-      println(hashtags)
-      println("Here is table1")
-      println(table1)
-      println("Here is table2")
-      println(table2)
+
       //entities.get.hashtags returns the topics sans hashtags
       // so you have to remove the first from the original seed otherwise .contains always returns false
-      val seednohash = seed1.substring(1,seed1.length())
-      val seednohash2 = seed2.substring(1,seed2.length())
-      
-      if (hashtags.contains(seednohash)){
+      if (hashtags.contains(seed1)){
         for (tag <- hashtags) {
           if (table1.contains(tag)) table1(tag) += 1 else table1 += (tag -> 1)
         }
       }
 
-      if(hashtags.contains(seednohash2)){
+      if(hashtags.contains(seed2)){
         for (tag <- hashtags){
           if (table2.contains(tag)) table2(tag)+=1 else table2 +=(tag->1)
         }
       }
 
-//      if (hashtags.contains(seed1)) {
-//        for (tag <- hashtags) table1(tag) += 1
-//      }
-//      if (hashtags.contains(seed2)) {
-//        for (tag <- hashtags) table2(tag) += 1
-//      }
-      if (table1(seed1) % 10 == 0) {
-        println(table1)
-        println("---------------------------------------------")
-        man1 ! top5(table1)
+      if (table1(seed1) % 2 == 0) {
+
+        val msg = top5(table1)
+        man1 ! msg
       }
-      if (table2(seed2) % 10 == 0) {
-        println(table2)
-        println("---------------------------------------------")
-        man2 ! top5(table2)
+      if (table2(seed2) % 2 == 0) {
+        val msg = top5(table2)
+        man2 ! msg
       }
     }
+
   }
 
-  def top5(value: mutable.Map[String, Int]): Unit ={
+  def top5(value: mutable.Map[String, Int]): Seq[(String,Int)] ={
     if (value.size < 5) {
-      println("top 5 less than five")
       val top = value.toSeq.sortBy(_._2).reverse
-      println(top)
+
+      top
     }
     else {
       val top = value.toSeq.sortBy(_._2).reverse
-      println("Here are the top5")
-      println(top.slice(0,5))
+      top.slice(0,5)
     }
-  }
-
-  def newSources(): Unit ={
-    println("now generating sources for new tags")
   }
 }
 
+//Creates Tweeter objects based on hashtags it receives from the HashManager
+//or terminates if it receives something other than hashtags
 class TweetManager(hub: Sink[String,NotUsed]) extends Actor{
   val toConsume = hub
   var tweeters: Map[String,ActorRef] = Map()
@@ -162,6 +139,12 @@ class TweetManager(hub: Sink[String,NotUsed]) extends Actor{
         }
       }
     }
+
+    case i => {
+      println("found something else =====================================================================")
+      println(i)
+      println(i.getClass())
+    }
   }
 }
 
@@ -173,7 +156,7 @@ class TweetManager(hub: Sink[String,NotUsed]) extends Actor{
     // TWITTER_ACCESS_TOKEN_KEY and TWITTER_ACCESS_TOKEN_SECRE
     val streamingClient = TwitterStreamingClient()
     // change this to whichever words you want to track
-    val trackedWords = Seq("#covid")
+    val trackedWords = Seq("#covid", "#scotus")
 
     // logger is accessible with trait LazyLogging - see https://github.com/typesafehub/scala-logging
     // backend used in project is logback - https://logback.qos.ch/
@@ -198,10 +181,15 @@ class TweetManager(hub: Sink[String,NotUsed]) extends Actor{
     val onErrorMessage = (ex: Throwable) => "error"
     val man1 = system.actorOf(Props(new TweetManager(sink))) //actor object
     val man2 = system.actorOf(Props(new TweetManager(sink))) //actor object
-    val hashManager = system.actorOf(Props(new HashManager("#Covid","#SCOTUS",man1,man2)))
+    val hashManager = system.actorOf(Props(new HashManager("#cheese","#ham",man1,man2)))
     val passer = Sink.actorRef(hashManager,"hello")
     source.runWith(passer)
-    //source.runWith(Sink.foreach(println))
+
+
+    source.runWith(Sink.foreach((t: Any)=>{
+      println(t.asInstanceOf[Tweet].text)
+      println("--------------------------------------------------------")
+    }))
   }
 
   // demo purpose only, do not use logging to serialize tweets :)
